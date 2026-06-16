@@ -1,6 +1,6 @@
 name: Build Tailscale Router IPQ64 Binary
 
-on:
+"on":
 workflow_dispatch:
 inputs:
 version:
@@ -17,7 +17,7 @@ options:
 - "true"
 
 schedule:
-- cron: "00 18 * * *"
+- cron: "30 20 * * *"
 
 permissions:
 contents: write
@@ -27,14 +27,16 @@ build:
 runs-on: ubuntu-latest
 
 ```
+env:
+  INPUT_VER: "${{ github.event.inputs.version || '' }}"
+  FORCE_REBUILD: "${{ github.event.inputs.force_rebuild || 'false' }}"
+
 steps:
   - name: Decide Tailscale Linux arm64 version
     id: ver
     shell: bash
     run: |
       set -euo pipefail
-
-      INPUT_VER="${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}"
 
       if [ -n "$INPUT_VER" ]; then
         VER="$INPUT_VER"
@@ -65,10 +67,9 @@ steps:
       set -euo pipefail
 
       REL_TAG="${{ steps.ver.outputs.rel_tag }}"
-      FORCE="${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild || 'false' }}"
 
       if gh release view "$REL_TAG" >/dev/null 2>&1; then
-        if [ "$FORCE" = "true" ]; then
+        if [ "$FORCE_REBUILD" = "true" ]; then
           echo "Release exists, but force_rebuild=true. Continue."
           echo "build=true" >> "$GITHUB_OUTPUT"
           echo "delete_old=true" >> "$GITHUB_OUTPUT"
@@ -178,7 +179,6 @@ steps:
       sha256sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > SHA256SUMS
       md5sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > MD5SUMS
 
-      # 路由器单文件校验用
       md5sum tailscale.combined > tailscale.combined.md5
       sha256sum tailscale.combined > tailscale.combined.sha256
 
