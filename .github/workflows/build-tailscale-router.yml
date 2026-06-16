@@ -28,8 +28,12 @@ jobs:
     env:
       INPUT_VER: "${{ github.event.inputs.version || '' }}"
       FORCE_REBUILD: "${{ github.event.inputs.force_rebuild || 'false' }}"
+      GH_REPO: "${{ github.repository }}"
 
     steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+
       - name: Decide Tailscale Linux arm64 version
         id: ver
         shell: bash
@@ -66,7 +70,7 @@ jobs:
 
           REL_TAG="${{ steps.ver.outputs.rel_tag }}"
 
-          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+          if gh release view "$REL_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             if [ "$FORCE_REBUILD" = "true" ]; then
               echo "Release exists, but force_rebuild=true. Continue."
               echo "build=true" >> "$GITHUB_OUTPUT"
@@ -105,6 +109,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          rm -rf tailscale
           git clone --depth 1 --branch "${{ steps.ver.outputs.ver }}" \
             https://github.com/tailscale/tailscale.git tailscale
 
@@ -115,6 +120,7 @@ jobs:
           go-version-file: tailscale/go.mod
           check-latest: true
           cache: true
+          cache-dependency-path: tailscale/go.sum
 
       - name: Build arm64 combined binary
         if: steps.check_release.outputs.build == 'true'
@@ -198,7 +204,7 @@ jobs:
           set -euo pipefail
 
           REL_TAG="${{ steps.ver.outputs.rel_tag }}"
-          gh release delete "$REL_TAG" --yes --cleanup-tag
+          gh release delete "$REL_TAG" --repo "$GH_REPO" --yes --cleanup-tag
 
       - name: Create GitHub Release
         if: steps.check_release.outputs.build == 'true'
@@ -237,5 +243,6 @@ jobs:
           EOF
 
           gh release create "$REL_TAG" tailscale/dist/* \
+            --repo "$GH_REPO" \
             --title "Tailscale Router IPQ64 ${VER} arm64 combined" \
             --notes-file RELEASE_NOTES.md
