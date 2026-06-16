@@ -1,242 +1,241 @@
 name: Build Tailscale Router IPQ64 Binary
 
 "on":
-workflow_dispatch:
-inputs:
-version:
-description: "Tailscale version tag, example: v1.98.4. Empty means latest Linux arm64 stable package."
-required: false
-default: ""
-force_rebuild:
-description: "Rebuild even if release already exists"
-required: false
-default: "false"
-type: choice
-options:
-- "false"
-- "true"
-
-schedule:
-- cron: "00 14 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tailscale version tag, example: v1.98.4. Empty means latest Linux arm64 stable package."
+        required: false
+        default: ""
+      force_rebuild:
+        description: "Rebuild even if release already exists"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+  schedule:
+    - cron: "00 06 * * *"
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-env:
-  INPUT_VER: "${{ github.event.inputs.version || '' }}"
-  FORCE_REBUILD: "${{ github.event.inputs.force_rebuild || 'false' }}"
-
-steps:
-  - name: Decide Tailscale Linux arm64 version
-    id: ver
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      if [ -n "$INPUT_VER" ]; then
-        VER="$INPUT_VER"
-      else
-        VER_NUM="$(curl -fsSL https://pkgs.tailscale.com/stable/ \
-          | grep -oE 'tailscale_[0-9]+\.[0-9]+\.[0-9]+_arm64\.tgz' \
-          | sed -E 's/tailscale_([0-9]+\.[0-9]+\.[0-9]+)_arm64\.tgz/\1/' \
-          | sort -V \
-          | tail -n1)"
-
-        VER="v${VER_NUM}"
-      fi
-
-      REL_TAG="router-${VER}"
-
-      echo "ver=${VER}" >> "$GITHUB_OUTPUT"
-      echo "rel_tag=${REL_TAG}" >> "$GITHUB_OUTPUT"
-
-      echo "Tailscale Linux arm64 version: ${VER}"
-      echo "Release tag: ${REL_TAG}"
-
-  - name: Check whether release already exists
-    id: check_release
     env:
-      GH_TOKEN: ${{ github.token }}
-    shell: bash
-    run: |
-      set -euo pipefail
+      INPUT_VER: "${{ github.event.inputs.version || '' }}"
+      FORCE_REBUILD: "${{ github.event.inputs.force_rebuild || 'false' }}"
 
-      REL_TAG="${{ steps.ver.outputs.rel_tag }}"
+    steps:
+      - name: Decide Tailscale Linux arm64 version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      if gh release view "$REL_TAG" >/dev/null 2>&1; then
-        if [ "$FORCE_REBUILD" = "true" ]; then
-          echo "Release exists, but force_rebuild=true. Continue."
-          echo "build=true" >> "$GITHUB_OUTPUT"
-          echo "delete_old=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "Release already exists: $REL_TAG. Skip build."
-          echo "build=false" >> "$GITHUB_OUTPUT"
-          echo "delete_old=false" >> "$GITHUB_OUTPUT"
-        fi
-      else
-        echo "Release does not exist. Continue."
-        echo "build=true" >> "$GITHUB_OUTPUT"
-        echo "delete_old=false" >> "$GITHUB_OUTPUT"
-      fi
+          if [ -n "$INPUT_VER" ]; then
+            VER="$INPUT_VER"
+          else
+            VER_NUM="$(curl -fsSL https://pkgs.tailscale.com/stable/ \
+              | grep -oE 'tailscale_[0-9]+\.[0-9]+\.[0-9]+_arm64\.tgz' \
+              | sed -E 's/tailscale_([0-9]+\.[0-9]+\.[0-9]+)_arm64\.tgz/\1/' \
+              | sort -V \
+              | tail -n1)"
 
-  - name: Stop if already built
-    if: steps.check_release.outputs.build == 'false'
-    shell: bash
-    run: |
-      echo "No new version to build."
+            VER="v${VER_NUM}"
+          fi
 
-  - name: Install build tools
-    if: steps.check_release.outputs.build == 'true'
-    shell: bash
-    run: |
-      set -euo pipefail
+          REL_TAG="router-${VER}"
 
-      sudo apt-get update
-      sudo apt-get install -y git curl ca-certificates build-essential file
+          echo "ver=${VER}" >> "$GITHUB_OUTPUT"
+          echo "rel_tag=${REL_TAG}" >> "$GITHUB_OUTPUT"
 
-      sudo apt-get install -y upx-ucl || sudo apt-get install -y upx
+          echo "Tailscale Linux arm64 version: ${VER}"
+          echo "Release tag: ${REL_TAG}"
 
-  - name: Clone Tailscale source
-    if: steps.check_release.outputs.build == 'true'
-    shell: bash
-    run: |
-      set -euo pipefail
+      - name: Check whether release already exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      git clone --depth 1 --branch "${{ steps.ver.outputs.ver }}" \
-        https://github.com/tailscale/tailscale.git tailscale
+          REL_TAG="${{ steps.ver.outputs.rel_tag }}"
 
-  - name: Set up Go
-    if: steps.check_release.outputs.build == 'true'
-    uses: actions/setup-go@v5
-    with:
-      go-version-file: tailscale/go.mod
-      check-latest: true
-      cache: true
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            if [ "$FORCE_REBUILD" = "true" ]; then
+              echo "Release exists, but force_rebuild=true. Continue."
+              echo "build=true" >> "$GITHUB_OUTPUT"
+              echo "delete_old=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Release already exists: $REL_TAG. Skip build."
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "delete_old=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Release does not exist. Continue."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "delete_old=false" >> "$GITHUB_OUTPUT"
+          fi
 
-  - name: Build arm64 combined binary
-    if: steps.check_release.outputs.build == 'true'
-    shell: bash
-    working-directory: tailscale
-    run: |
-      set -euo pipefail
+      - name: Stop if already built
+        if: steps.check_release.outputs.build == 'false'
+        shell: bash
+        run: |
+          echo "No new version to build."
 
-      eval "$(./build_dist.sh shellvars)"
+      - name: Install build tools
+        if: steps.check_release.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      TAGS="ts_omit_aws,ts_omit_bird,ts_omit_tap,ts_omit_kube,ts_omit_completion,ts_include_cli,ts_omit_systray,ts_omit_tpm,ts_omit_debugeventbus,ts_omit_syspolicy,ts_omit_capture,ts_omit_ssh,ts_omit_taildrop,ts_omit_gro"
+          sudo apt-get update
+          sudo apt-get install -y git curl ca-certificates build-essential file
 
-      echo "Build version long: ${VERSION_LONG}"
-      echo "Build version short: ${VERSION_SHORT}"
-      echo "Build tags: ${TAGS}"
+          sudo apt-get install -y upx-ucl || sudo apt-get install -y upx
 
-      CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOARM64=v8.0 \
-      go build -trimpath \
-        -tags "$TAGS" \
-        -ldflags "-s -w -X tailscale.com/version.longStamp=${VERSION_LONG} -X tailscale.com/version.shortStamp=${VERSION_SHORT}" \
-        -o tailscale.combined \
-        ./cmd/tailscaled
+      - name: Clone Tailscale source
+        if: steps.check_release.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      cp tailscale.combined tailscale.combined.raw
+          git clone --depth 1 --branch "${{ steps.ver.outputs.ver }}" \
+            https://github.com/tailscale/tailscale.git tailscale
 
-      file tailscale.combined
-      go version -m tailscale.combined | tee buildinfo.txt
+      - name: Set up Go
+        if: steps.check_release.outputs.build == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tailscale/go.mod
+          check-latest: true
+          cache: true
 
-  - name: Compress with UPX
-    if: steps.check_release.outputs.build == 'true'
-    shell: bash
-    working-directory: tailscale
-    run: |
-      set -euo pipefail
+      - name: Build arm64 combined binary
+        if: steps.check_release.outputs.build == 'true'
+        shell: bash
+        working-directory: tailscale
+        run: |
+          set -euo pipefail
 
-      upx --lzma --best tailscale.combined
-      upx -t tailscale.combined
-      upx -l tailscale.combined | tee upx-info.txt
+          eval "$(./build_dist.sh shellvars)"
 
-      mkdir -p dist
+          TAGS="ts_omit_aws,ts_omit_bird,ts_omit_tap,ts_omit_kube,ts_omit_completion,ts_include_cli,ts_omit_systray,ts_omit_tpm,ts_omit_debugeventbus,ts_omit_syspolicy,ts_omit_capture,ts_omit_ssh,ts_omit_taildrop,ts_omit_gro"
 
-      cp tailscale.combined "dist/tailscale.combined"
-      cp tailscale.combined.raw "dist/tailscale.combined.raw"
-      cp buildinfo.txt "dist/buildinfo.txt"
-      cp upx-info.txt "dist/upx-info.txt"
+          echo "Build version long: ${VERSION_LONG}"
+          echo "Build version short: ${VERSION_SHORT}"
+          echo "Build tags: ${TAGS}"
 
-      {
-        echo "Tailscale version: ${{ steps.ver.outputs.ver }}"
-        echo "Target: linux/arm64"
-        echo "Router target: IPQ64 / aarch64"
-        echo "Build mode: combined tailscale + tailscaled"
-        echo "Extra fix: ts_omit_gro"
-        echo ""
-        echo "Build tags:"
-        echo "ts_omit_aws,ts_omit_bird,ts_omit_tap,ts_omit_kube,ts_omit_completion,ts_include_cli,ts_omit_systray,ts_omit_tpm,ts_omit_debugeventbus,ts_omit_syspolicy,ts_omit_capture,ts_omit_ssh,ts_omit_taildrop,ts_omit_gro"
-      } > dist/README.txt
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOARM64=v8.0 \
+          go build -trimpath \
+            -tags "$TAGS" \
+            -ldflags "-s -w -X tailscale.com/version.longStamp=${VERSION_LONG} -X tailscale.com/version.shortStamp=${VERSION_SHORT}" \
+            -o tailscale.combined \
+            ./cmd/tailscaled
 
-      cd dist
+          cp tailscale.combined tailscale.combined.raw
 
-      sha256sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > SHA256SUMS
-      md5sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > MD5SUMS
+          file tailscale.combined
+          go version -m tailscale.combined | tee buildinfo.txt
 
-      md5sum tailscale.combined > tailscale.combined.md5
-      sha256sum tailscale.combined > tailscale.combined.sha256
+      - name: Compress with UPX
+        if: steps.check_release.outputs.build == 'true'
+        shell: bash
+        working-directory: tailscale
+        run: |
+          set -euo pipefail
 
-      ls -lh
+          upx --lzma --best tailscale.combined
+          upx -t tailscale.combined
+          upx -l tailscale.combined | tee upx-info.txt
 
-  - name: Upload artifact
-    if: steps.check_release.outputs.build == 'true'
-    uses: actions/upload-artifact@v4
-    with:
-      name: tailscale-router-ipq64-${{ steps.ver.outputs.ver }}-arm64
-      path: tailscale/dist/*
+          mkdir -p dist
 
-  - name: Delete old release when force rebuilding
-    if: steps.check_release.outputs.build == 'true' && steps.check_release.outputs.delete_old == 'true'
-    env:
-      GH_TOKEN: ${{ github.token }}
-    shell: bash
-    run: |
-      set -euo pipefail
+          cp tailscale.combined "dist/tailscale.combined"
+          cp tailscale.combined.raw "dist/tailscale.combined.raw"
+          cp buildinfo.txt "dist/buildinfo.txt"
+          cp upx-info.txt "dist/upx-info.txt"
 
-      REL_TAG="${{ steps.ver.outputs.rel_tag }}"
-      gh release delete "$REL_TAG" --yes --cleanup-tag
+          {
+            echo "Tailscale version: ${{ steps.ver.outputs.ver }}"
+            echo "Target: linux/arm64"
+            echo "Router target: IPQ64 / aarch64"
+            echo "Build mode: combined tailscale + tailscaled"
+            echo "Extra fix: ts_omit_gro"
+            echo ""
+            echo "Build tags:"
+            echo "ts_omit_aws,ts_omit_bird,ts_omit_tap,ts_omit_kube,ts_omit_completion,ts_include_cli,ts_omit_systray,ts_omit_tpm,ts_omit_debugeventbus,ts_omit_syspolicy,ts_omit_capture,ts_omit_ssh,ts_omit_taildrop,ts_omit_gro"
+          } > dist/README.txt
 
-  - name: Create GitHub Release
-    if: steps.check_release.outputs.build == 'true'
-    env:
-      GH_TOKEN: ${{ github.token }}
-    shell: bash
-    run: |
-      set -euo pipefail
+          cd dist
 
-      VER="${{ steps.ver.outputs.ver }}"
-      REL_TAG="${{ steps.ver.outputs.rel_tag }}"
+          sha256sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > SHA256SUMS
+          md5sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > MD5SUMS
 
-      cat > RELEASE_NOTES.md <<EOF
-      Tailscale ${VER} arm64 combined binary for koolshare / ASUS IPQ64 router.
+          md5sum tailscale.combined > tailscale.combined.md5
+          sha256sum tailscale.combined > tailscale.combined.sha256
 
-      Build features:
-      - linux/arm64
-      - combined tailscale + tailscaled
-      - koolshare-compatible build tags based on the original plugin binary
-      - extra ts_omit_gro to avoid invertGSOChecksum panic on IPQ5332 / Linux 5.4
-      - UPX --lzma --best compressed
+          ls -lh
 
-      Files:
-      - tailscale.combined: UPX compressed binary for router
-      - tailscale.combined.raw: uncompressed fallback binary
-      - buildinfo.txt: Go build information
-      - upx-info.txt: UPX compression information
-      - SHA256SUMS: SHA-256 checksum file
-      - MD5SUMS: MD5 checksum file
-      - tailscale.combined.md5: MD5 checksum for router-side verification
-      - tailscale.combined.sha256: SHA-256 checksum for the compressed router binary
-      - README.txt: short build summary
+      - name: Upload artifact
+        if: steps.check_release.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailscale-router-ipq64-${{ steps.ver.outputs.ver }}-arm64
+          path: tailscale/dist/*
 
-      Router-side MD5 verification:
-      md5sum -c tailscale.combined.md5
-      EOF
+      - name: Delete old release when force rebuilding
+        if: steps.check_release.outputs.build == 'true' && steps.check_release.outputs.delete_old == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      gh release create "$REL_TAG" tailscale/dist/* \
-        --title "Tailscale Router IPQ64 ${VER} arm64 combined" \
-        --notes-file RELEASE_NOTES.md
+          REL_TAG="${{ steps.ver.outputs.rel_tag }}"
+          gh release delete "$REL_TAG" --yes --cleanup-tag
+
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VER="${{ steps.ver.outputs.ver }}"
+          REL_TAG="${{ steps.ver.outputs.rel_tag }}"
+
+          cat > RELEASE_NOTES.md <<EOF
+          Tailscale ${VER} arm64 combined binary for koolshare / ASUS IPQ64 router.
+
+          Build features:
+          - linux/arm64
+          - combined tailscale + tailscaled
+          - koolshare-compatible build tags based on the original plugin binary
+          - extra ts_omit_gro to avoid invertGSOChecksum panic on IPQ5332 / Linux 5.4
+          - UPX --lzma --best compressed
+
+          Files:
+          - tailscale.combined: UPX compressed binary for router
+          - tailscale.combined.raw: uncompressed fallback binary
+          - buildinfo.txt: Go build information
+          - upx-info.txt: UPX compression information
+          - SHA256SUMS: SHA-256 checksum file
+          - MD5SUMS: MD5 checksum file
+          - tailscale.combined.md5: MD5 checksum for router-side verification
+          - tailscale.combined.sha256: SHA-256 checksum for the compressed router binary
+          - README.txt: short build summary
+
+          Router-side MD5 verification:
+          md5sum -c tailscale.combined.md5
+          EOF
+
+          gh release create "$REL_TAG" tailscale/dist/* \
+            --title "Tailscale Router IPQ64 ${VER} arm64 combined" \
+            --notes-file RELEASE_NOTES.md
