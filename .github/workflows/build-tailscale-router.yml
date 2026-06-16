@@ -21,6 +21,10 @@ name: Build Tailscale Router IPQ64 Binary
 permissions:
   contents: write
 
+concurrency:
+  group: tailscale-router-ipq64-build
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -42,6 +46,10 @@ jobs:
 
           if [ -n "$INPUT_VER" ]; then
             VER="$INPUT_VER"
+            case "$VER" in
+              v*) ;;
+              *) VER="v${VER}" ;;
+            esac
           else
             VER_NUM="$(curl -fsSL https://pkgs.tailscale.com/stable/ \
               | grep -oE 'tailscale_[0-9]+\.[0-9]+\.[0-9]+_arm64\.tgz' \
@@ -144,8 +152,6 @@ jobs:
             -o tailscale.combined \
             ./cmd/tailscaled
 
-          cp tailscale.combined tailscale.combined.raw
-
           file tailscale.combined
           go version -m tailscale.combined | tee buildinfo.txt
 
@@ -163,28 +169,11 @@ jobs:
           mkdir -p dist
 
           cp tailscale.combined "dist/tailscale.combined"
-          cp tailscale.combined.raw "dist/tailscale.combined.raw"
           cp buildinfo.txt "dist/buildinfo.txt"
           cp upx-info.txt "dist/upx-info.txt"
 
-          {
-            echo "Tailscale version: ${{ steps.ver.outputs.ver }}"
-            echo "Target: linux/arm64"
-            echo "Router target: IPQ64 / aarch64"
-            echo "Build mode: combined tailscale + tailscaled"
-            echo "Extra fix: ts_omit_gro"
-            echo ""
-            echo "Build tags:"
-            echo "ts_omit_aws,ts_omit_bird,ts_omit_tap,ts_omit_kube,ts_omit_completion,ts_include_cli,ts_omit_systray,ts_omit_tpm,ts_omit_debugeventbus,ts_omit_syspolicy,ts_omit_capture,ts_omit_ssh,ts_omit_taildrop,ts_omit_gro"
-          } > dist/README.txt
-
           cd dist
-
-          sha256sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > SHA256SUMS
-          md5sum tailscale.combined tailscale.combined.raw buildinfo.txt upx-info.txt README.txt > MD5SUMS
-
           md5sum tailscale.combined > tailscale.combined.md5
-          sha256sum tailscale.combined > tailscale.combined.sha256
 
           ls -lh
 
@@ -218,29 +207,45 @@ jobs:
           REL_TAG="${{ steps.ver.outputs.rel_tag }}"
 
           cat > RELEASE_NOTES.md <<EOF
-          Tailscale ${VER} arm64 combined binary for koolshare / ASUS IPQ64 router.
+          Tailscale ${VER} 路由器自定义构建，目标平台为 koolshare / ASUS IPQ64 / arm64。
 
-          Build features:
-          - linux/arm64
-          - combined tailscale + tailscaled
-          - koolshare-compatible build tags based on the original plugin binary
-          - extra ts_omit_gro to avoid invertGSOChecksum panic on IPQ5332 / Linux 5.4
-          - UPX --lzma --best compressed
+          ## 构建说明
 
-          Files:
-          - tailscale.combined: UPX compressed binary for router
-          - tailscale.combined.raw: uncompressed fallback binary
-          - buildinfo.txt: Go build information
-          - upx-info.txt: UPX compression information
-          - SHA256SUMS: SHA-256 checksum file
-          - MD5SUMS: MD5 checksum file
-          - tailscale.combined.md5: MD5 checksum for router-side verification
-          - tailscale.combined.sha256: SHA-256 checksum for the compressed router binary
-          - README.txt: short build summary
+          - 目标系统：linux/arm64
+          - 构建模式：tailscale + tailscaled combined
+          - 压缩方式：UPX --lzma --best
+          - 版本来源：Tailscale 官方 Linux arm64 stable 包
+          - 兼容目标：koolshare Tailscale 插件 combined 二进制结构
+          - 额外处理：加入 ts_omit_gro，用于规避部分 IPQ5332 / Linux 5.4 环境下的 invertGSOChecksum panic
 
-          Router-side MD5 verification:
+          ## 文件说明
+
+          - tailscale.combined：路由器使用的 UPX 压缩版二进制
+          - tailscale.combined.md5：路由器端 MD5 校验文件
+          - buildinfo.txt：Go 构建信息
+          - upx-info.txt：UPX 压缩信息
+
+          ## 路由器端校验
+
+          下载 tailscale.combined 和 tailscale.combined.md5 后，在路由器上执行：
+
+          ```sh
+          cd /tmp
           md5sum -c tailscale.combined.md5
+          ```
+
+          正常输出：
+
+          ```text
+          tailscale.combined: OK
+          ```
+
+          ## 注意事项
+
+          本 Release 为非官方构建，不属于 Tailscale 官方发布渠道。更新前建议备份原有 /koolshare/bin/tailscale* 文件。
           EOF
+
+          sed -i 's/^          //' RELEASE_NOTES.md
 
           gh release create "$REL_TAG" tailscale/dist/* \
             --repo "$GH_REPO" \
