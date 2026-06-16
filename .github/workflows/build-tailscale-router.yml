@@ -17,7 +17,7 @@ options:
 - "true"
 
 schedule:
-- cron: "30 20 * * *"
+- cron: "00 14 * * *"
 
 permissions:
 contents: write
@@ -26,7 +26,6 @@ jobs:
 build:
 runs-on: ubuntu-latest
 
-```
 env:
   INPUT_VER: "${{ github.event.inputs.version || '' }}"
   FORCE_REBUILD: "${{ github.event.inputs.force_rebuild || 'false' }}"
@@ -241,4 +240,3 @@ steps:
       gh release create "$REL_TAG" tailscale/dist/* \
         --title "Tailscale Router IPQ64 ${VER} arm64 combined" \
         --notes-file RELEASE_NOTES.md
-```
