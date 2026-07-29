@@ -17,10 +17,9 @@ BAK="/koolshare/tailscale_bak_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BAK"
 cp -a /koolshare/bin/tailscale* "$BAK"/
 
-OWNER_GROUP="$(stat -c '%u:%g' /koolshare/bin/tailscale.combined)"
 cp -f /tmp/tailscale.combined /koolshare/bin/tailscale.combined
 chmod 755 /koolshare/bin/tailscale.combined
-chown "$OWNER_GROUP" /koolshare/bin/tailscale.combined
+# chown 当前用户:root /koolshare/bin/tailscale.combined
 
 /koolshare/scripts/tailscale_config start
 /koolshare/bin/tailscale version
